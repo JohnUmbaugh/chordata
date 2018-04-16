@@ -1,0 +1,341 @@
+<!DOCTYPE HTML>
+<html>
+  <head>
+    <style>
+      html, body {
+        margin: 0px;
+        padding: 0px;
+        width: 100%;
+        height: 100%;
+      }
+      canvas {
+        display:block;  /* no scrollbars */
+        background: #7777aa;
+      }
+
+    </style>
+  </head>
+  <body>
+    <canvas id="mainCanvas"></canvas>
+    <script>
+      var canvas = document.getElementById( 'mainCanvas' )
+      canvas.width = document.body.clientWidth;
+      canvas.height = document.body.clientHeight;
+
+      var graphicsContextWrapper = {
+        canvas : canvas,
+        boundingRectangle : canvas.getBoundingClientRect(),
+        context : canvas.getContext( '2d' )
+      };
+
+      var utility = {
+        getDistanceSquared : function( x1, y1, x2, y2 ) {
+          var dx = x1 - x2;
+          var dy = y1 - y2;
+          return ( ( dx * dx ) + ( dy * dy ) );
+        },
+        getDistance : function( x1, y1, x2, y2 ) {
+          return Math.sqrt( this.getDistanceSquared( x1, y1, x2, y2 ) );
+        },
+        getDotProduct : function( x1, y1, x2, y2 ) {
+          return ( x1 * x2 ) + ( y1 * y2 );
+        },
+        getMagnitudeSquared : function( x, y ) {
+          return this.getDotProduct( x, y, x, y );
+        },
+        getMagnitude : function( x, y ) {
+          return Math.sqrt( this.getMagnitudeSquared( x, y ) );
+        },
+        getAngle : function( x1, y1, x2, y2 ) {
+          var rawAngle = Math.acos( this.getDotProduct( x1, y1, x2, y2 ) / ( this.getMagnitude( x1, y1 ) * this.getMagnitude( x2, y2 ) ) );
+          return ( x2 - x1 > 0 ) ? -rawAngle : rawAngle;
+        }
+      };
+
+      var controllerContext = {
+        mouse : {
+          position : {
+            x : 0,
+            y : 0
+          },
+          isMouseDown : false,
+          getMousePos : function( evt ) {
+            return {
+              x: evt.clientX - graphicsContextWrapper.boundingRectangle.left,
+              y: evt.clientY - graphicsContextWrapper.boundingRectangle.top
+            };
+          },
+          updatePosition : function( evt ) {
+            this.position = this.getMousePos( evt );
+          },
+          updateMouseDown : function( isMouseDown ) {
+            this.isMouseDown = isMouseDown;
+          }
+        }
+      };
+
+      var nodeArchetype = {
+        x : 0,
+        y : 0,
+        radius: 30,
+        borderWidth : 2,
+        outgoingArrows : [],
+        drawState : "default",
+        draw : function( graphicsContextWrapper ) {
+          var ctx = graphicsContextWrapper.context;
+          ctx.save();
+          ctx.setTransform( 1, 0, 0, 1, this.x, this.y );
+          ctx.beginPath();
+          ctx.arc( 0, 0, this.radius, 0, 2 * Math.PI, false );
+          ctx.fillStyle = this.getFillColor();
+          ctx.fill();
+          ctx.lineWidth = this.borderWidth;
+          ctx.strokeStyle = this.getBorderColor();
+          ctx.stroke();
+          ctx.restore();
+        },
+        update: function() {
+          if ( this.within( controllerContext.mouse.position ) ) {
+            if ( controllerContext.mouse.isMouseDown == true ) {
+              this.drawState = "mouseDown";
+            } else {
+              this.drawState = "hoverOver";
+            }
+          } else {
+            this.drawState = "default";
+          }
+        },
+        within : function( mousePos ) {
+          return utility.getDistanceSquared( this.x, this.y, mousePos.x, mousePos.y ) < ( this.radius * this.radius );
+        },
+        getFillColor : function() {
+          return this.drawProfile[ this.drawState ].fillColor;
+        },
+        getBorderColor : function() {
+          return this.drawProfile[ this.drawState ].borderColor;
+        },
+        drawProfile : {
+          "default" : {
+            fillColor : "#333333",
+            borderColor : "#000000"
+          },
+          "hoverOver" : {
+            fillColor : "#666666",
+            borderColor : "#333333"
+          },
+          "mouseDown" : {
+            fillColor : "#333333",
+            borderColor : "#999999"
+          }
+        }
+      };
+
+      var nodeBuilder = {
+        identifier : 0,
+        build : function( x, y, drawProfile ) {
+          node = Object.create( nodeArchetype );
+          node.x = x;
+          node.y = y;
+          node.drawProfile = drawProfile;
+          node.identifier = this.identifier;
+          this.identifier++;
+          return node;
+        }
+      };
+
+      var arrowArchetype = {
+        source : null,
+        target : null,
+        draw : function( graphicsContextWrapper ) {
+          var ctx = graphicsContextWrapper.context;
+          ctx.save();
+          ctx.setTransform( 1, 0, 0, 1, this.source.x, this.source.y );
+          var y = Math.ceil( utility.getDistance( this.source.x, this.source.y, this.target.x, this.target.y ) );
+          var angle = utility.getAngle( 0, y, this.target.x - this.source.x, this.target.y - this.source.y );
+          ctx.rotate( angle );
+
+          var lineHalfWidth = 2;
+          ctx.moveTo( -lineHalfWidth, 0 );
+          ctx.beginPath();
+          ctx.lineTo( -lineHalfWidth, y );
+          ctx.lineTo( lineHalfWidth, y );
+          ctx.lineTo( lineHalfWidth, 0 );
+          ctx.lineTo( -lineHalfWidth, 0 );
+          ctx.closePath();
+          ctx.fill();
+
+          ctx.setTransform( 1, 0, 0, 1, this.target.x, this.target.y );
+          ctx.rotate( angle );
+
+          var arrowHeadHeight = 20;
+          var arrowHeadPointOffset = 1;
+          var arrowHeadHalfWidth = 10;
+
+          ctx.beginPath();
+          ctx.moveTo( 0, -nodeArchetype.radius + arrowHeadPointOffset);
+          ctx.lineTo( -arrowHeadHalfWidth, -nodeArchetype.radius - arrowHeadHeight );
+          ctx.lineTo( arrowHeadHalfWidth, -nodeArchetype.radius - arrowHeadHeight );
+          ctx.moveTo( 0, -nodeArchetype.radius + arrowHeadPointOffset );
+          ctx.closePath();
+          ctx.fill();
+
+          ctx.restore();
+        }
+      };
+
+      var arrowBuilder = {
+        build : function( source, target ) {
+          arrow = Object.create( arrowArchetype );
+          arrow.source = source;
+          arrow.target = target;
+          return arrow;
+        }
+      };
+
+      var myDrawProfile1 = {
+        "default" : {
+          fillColor : "#FF6666",
+          borderColor : "#CC3333"
+        },
+        "hoverOver" : {
+          fillColor : "#FF9999",
+          borderColor : "#FF6666"
+        },
+        "mouseDown" : {
+          fillColor : "#AA0000",
+          borderColor : "#770000"
+        }
+      };
+
+      var myDrawProfile2 = {
+        "default" : {
+          fillColor : "#66FF66",
+          borderColor : "#33DD33"
+        },
+        "hoverOver" : {
+          fillColor : "#99FF99",
+          borderColor : "#66FF66"
+        },
+        "mouseDown" : {
+          fillColor : "#00AA00",
+          borderColor : "#007700"
+        }
+      };
+
+      var myDrawProfile3 = {
+        "default" : {
+          fillColor : "#6666FF",
+          borderColor : "#3333FF"
+        },
+        "hoverOver" : {
+          fillColor : "#9999FF",
+          borderColor : "#6666FF"
+        },
+        "mouseDown" : {
+          fillColor : "#0000AA",
+          borderColor : "#000077"
+        }
+      };
+
+      var myDrawProfile4 = {
+        "default" : {
+          fillColor : "#FF66FF",
+          borderColor : "#FF33FF"
+        },
+        "hoverOver" : {
+          fillColor : "#FF99FF",
+          borderColor : "#FF66FF"
+        },
+        "mouseDown" : {
+          fillColor : "#AA00AA",
+          borderColor : "#770077"
+        }
+      };
+
+      var nodes = [];
+      var node1 = nodeBuilder.build( 140, 140, myDrawProfile1 );
+      var node2 = nodeBuilder.build( 320, 140, myDrawProfile2 );
+      var node3 = nodeBuilder.build( 140, 320, myDrawProfile3 );
+      var node4 = nodeBuilder.build( 320, 320, myDrawProfile4 );
+
+      node1.outgoingArrows.push( arrowBuilder.build( node1, node2 ) );
+      node1.outgoingArrows.push( arrowBuilder.build( node1, node4 ) );
+      node1.outgoingArrows.push( arrowBuilder.build( node1, node3 ) );
+      node4.outgoingArrows.push( arrowBuilder.build( node4, node3 ) );
+
+      nodes.push( node1 );
+      nodes.push( node2 );
+      nodes.push( node3 );
+      nodes.push( node4 );
+
+      var picker = {
+        nodes : nodes,
+        pickNode : function( mousePosition ) {
+          for ( nodeIndex = 0; nodeIndex < this.nodes.length; ++nodeIndex ) {
+            if ( this.nodes[ nodeIndex ].within( mousePosition ) )
+            {
+              return this.nodes[ nodeIndex ];
+            }
+          }
+          return null;
+        }
+      };
+
+      var selectorContainer = {
+        selector : null
+      };
+
+      var stage = {
+        graphicsContextWrapper : graphicsContextWrapper,
+        nodes : nodes,
+        update : function() {
+          for ( nodeIndex = 0; nodeIndex < nodes.length; ++nodeIndex ) {
+            nodes[ nodeIndex ].update();
+          }
+        },
+        drawNodes : function() {
+          for ( nodeIndex = 0; nodeIndex < nodes.length; ++nodeIndex ) {
+            nodes[ nodeIndex ].draw( this.graphicsContextWrapper );
+          }
+        },
+        drawArrows : function() {
+          for ( nodeIndex = 0; nodeIndex < nodes.length; ++nodeIndex ) {
+            for ( arrowIndex = 0; arrowIndex < nodes[ nodeIndex ].outgoingArrows.length; ++arrowIndex ) {
+              nodes[ nodeIndex ].outgoingArrows[ arrowIndex ].draw( this.graphicsContextWrapper );
+            }
+          }
+        },
+        draw : function() {
+          this.drawArrows();
+          this.drawNodes();
+        }
+      };
+
+      setInterval( function() { stage.draw() }, 30 );
+
+      graphicsContextWrapper.canvas.addEventListener( 'mousemove', function( evt ) {
+        controllerContext.mouse.updatePosition( evt );
+        stage.update();
+      }, false );
+
+      graphicsContextWrapper.canvas.addEventListener( 'mousedown', function( evt ) {
+        controllerContext.mouse.updateMouseDown( true );
+        var node = picker.pickNode( controllerContext.mouse.position );
+        selectorContainer.selector = {
+          type : "single",
+          node : node
+        };
+        console.log( selectorContainer );
+        stage.update();
+      }, false );
+
+      graphicsContextWrapper.canvas.addEventListener( 'mouseup', function( evt ) {
+        controllerContext.mouse.updateMouseDown( false );
+        selectorContainer.selector = null;
+        console.log( selectorContainer );
+        stage.update();
+      }, false );
+
+    </script>
+  </body>
+</html>
